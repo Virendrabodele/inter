@@ -16,7 +16,7 @@ No setup required! Interview data is automatically saved to:
 - `backend/interview_data/answers.json` - Individual answers and scores
 
 ### Data Stored:
-- Candidate name, age, and experience
+- Candidate name and experience
 - Complete job descriptions
 - All interview questions asked
 - All candidate responses

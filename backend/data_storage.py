@@ -274,17 +274,19 @@ class GoogleSheetsStorage:
             return
         
         try:
+            import gspread
+            
             # Try to open existing sheet or create new one
             try:
                 sheet = self.client.open(sheet_name)
-            except:
+            except gspread.exceptions.SpreadsheetNotFound:
                 sheet = self.client.create(sheet_name)
                 logger.info(f"Created new Google Sheet: {sheet_name}")
             
             # Get or create worksheet
             try:
                 worksheet = sheet.worksheet("Interviews")
-            except:
+            except gspread.exceptions.WorksheetNotFound:
                 worksheet = sheet.add_worksheet(title="Interviews", rows=1000, cols=20)
             
             # Prepare data for export
@@ -298,6 +300,9 @@ class GoogleSheetsStorage:
                 worksheet.append_row(headers)
             
             # Prepare row data
+            # Note: Job descriptions are truncated to 500 chars for Google Sheets
+            # to avoid cell size limits and improve readability. Full descriptions
+            # are still available in the local JSON storage.
             row = [
                 interview_data.get('session_id', ''),
                 interview_data.get('timestamp', datetime.now().isoformat()),
