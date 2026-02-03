@@ -58,3 +58,6 @@ logs/
 *_key.json
 *-key.json
 service_account.json
+
+# Interview data storage (optional - remove this line to commit interview data)
+backend/interview_data/

@@ -36,6 +36,8 @@ A cutting-edge, **voice-based AI interview platform** that simulates real human 
 ✅ **Local LLM**: Uses Ollama (Mistral/Llama2)—no cloud costs  
 ✅ **Beautiful UI**: Modern, responsive design with animations  
 ✅ **Comprehensive Reports**: Final score, strengths, weaknesses, recommendations  
+✅ **Data Persistence**: Automatically saves all interviews and responses  
+✅ **Google Sheets Export**: Optional export to Google Sheets for analysis  
 
 ---
 
@@ -306,13 +308,54 @@ npm run build
 
 ---
 
+## 📊 Data Persistence & Analytics
+
+The application now automatically stores all interview data for future improvements:
+
+### Automatic Local Storage
+All interviews are saved to `backend/interview_data/`:
+- **interviews.json**: Complete interview sessions with scores and feedback
+- **job_descriptions.json**: All job descriptions submitted
+- **answers.json**: Individual Q&A pairs with scores
+
+### Google Sheets Integration (Optional)
+Export interview data automatically to Google Sheets for:
+- Team collaboration and review
+- Easy data analysis and visualization
+- Building a knowledge base of interviews
+- Tracking candidate performance over time
+
+**Setup Guide**: See [GOOGLE_SHEETS_SETUP.md](./GOOGLE_SHEETS_SETUP.md) for detailed instructions
+
+### API Endpoints for Data Access
+```bash
+# Get all stored interviews
+GET /api/data/interviews
+
+# Get interview statistics
+GET /api/data/statistics
+
+# Get specific interview by ID
+GET /api/data/interview/{session_id}
+```
+
+### Using Data to Improve the Bot
+- Analyze which questions work best
+- Fine-tune scoring algorithms
+- Identify patterns in successful candidates
+- Build training datasets for future AI improvements
+- Generate better questions based on historical data
+
+---
+
 ## 🔒 Privacy & Security
 
 ✅ **All local**: LLM runs on your machine  
-✅ **No data storage**: Interviews don't persist  
+✅ **Persistent storage**: Interview data saved locally for analysis  
 ✅ **No cloud calls**: Speech recognition happens in browser  
-✅ **No API keys**: Everything is free and private  
+✅ **Optional export**: Google Sheets integration is optional  
 ✅ **No tracking**: No analytics or telemetry  
+⚠️ **Secure your data**: Keep credentials and interview data secure  
 
 ---
 
@@ -332,11 +375,13 @@ npm run build
 
 ## 🚀 Future Roadmap
 
+- [x] Interview data persistence (JSON storage)
+- [x] Google Sheets integration for data export
 - [ ] Video recording (camera + facial expressions)
 - [ ] Emotion/sentiment analysis
 - [ ] Resume upload & parsing
 - [ ] Multiple languages
-- [ ] Interview history & analytics
+- [ ] Interview history & analytics dashboard
 - [ ] HR dashboard
 - [ ] PDF report export
 - [ ] Interview templates library
@@ -354,7 +399,8 @@ Contributions welcome! Areas to improve:
 3. **Enhanced UI/UX** features
 4. **Performance optimizations**
 5. **Additional languages**
-6. **Database integration** for history
+6. **Database integration** for history ✅ (Completed - JSON + Google Sheets)
+7. **Data analytics** and visualization dashboards
 
 ---
 
