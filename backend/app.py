@@ -15,6 +15,7 @@ import logging
 from interview_manager import InterviewManager
 from llm_engine import LLMEngine
 from audio_processor import AudioProcessor
+from data_storage import DataStorage, GoogleSheetsStorage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,21 @@ app.add_middleware(
 llm_engine = LLMEngine(model="gemini-1.5-flash")  # Using Google Gemini
 interview_manager = None
 audio_processor = AudioProcessor()
+
+# Initialize data storage
+data_storage = DataStorage(storage_dir="interview_data")
+
+# Initialize Google Sheets (optional - requires credentials)
+google_sheets = None
+try:
+    google_sheets = GoogleSheetsStorage()
+    if google_sheets.is_initialized():
+        logger.info("Google Sheets integration enabled")
+    else:
+        logger.info("Google Sheets integration disabled (credentials not found)")
+except Exception as e:
+    logger.warning(f"Google Sheets initialization failed: {e}")
+    google_sheets = None
 
 
 @app.on_event("startup")
@@ -79,7 +95,9 @@ async def start_interview(payload: dict):
             job_description=job_description,
             candidate_name=candidate_name,
             experience_years=experience_years,
-            difficulty=difficulty
+            difficulty=difficulty,
+            data_storage=data_storage,
+            google_sheets=google_sheets
         )
         
         # Generate first question
@@ -211,6 +229,46 @@ async def available_models():
         return {"models": models}
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/data/interviews")
+async def get_all_interviews():
+    """Get all stored interview sessions"""
+    try:
+        interviews = data_storage.get_all_interviews()
+        return {
+            "total": len(interviews),
+            "interviews": interviews
+        }
+    except Exception as e:
+        logger.error(f"Error fetching interviews: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/data/statistics")
+async def get_statistics():
+    """Get statistics about stored interviews"""
+    try:
+        stats = data_storage.get_statistics()
+        return stats
+    except Exception as e:
+        logger.error(f"Error fetching statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/data/interview/{session_id}")
+async def get_interview(session_id: str):
+    """Get a specific interview by session ID"""
+    try:
+        interview = data_storage.get_interview_by_id(session_id)
+        if not interview:
+            raise HTTPException(status_code=404, detail="Interview not found")
+        return interview
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching interview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

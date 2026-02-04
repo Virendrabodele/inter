@@ -8,6 +8,7 @@ import json
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
+from data_storage import DataStorage, GoogleSheetsStorage
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,9 @@ class InterviewManager:
         job_description: str,
         candidate_name: str = "Candidate",
         experience_years: int = 0,
-        difficulty: str = "intermediate"
+        difficulty: str = "intermediate",
+        data_storage: Optional[DataStorage] = None,
+        google_sheets: Optional[GoogleSheetsStorage] = None
     ):
         """
         Initialize interview manager
@@ -30,6 +33,8 @@ class InterviewManager:
             candidate_name: Name of candidate
             experience_years: Years of experience
             difficulty: Difficulty level (beginner|intermediate|advanced)
+            data_storage: DataStorage instance for persisting interview data
+            google_sheets: GoogleSheetsStorage instance for exporting to Google Sheets
         """
         self.llm_engine = llm_engine
         self.session_id = str(uuid.uuid4())[:8]
@@ -37,6 +42,10 @@ class InterviewManager:
         self.candidate_name = candidate_name
         self.experience_years = experience_years
         self.difficulty = difficulty
+        
+        # Data persistence
+        self.data_storage = data_storage
+        self.google_sheets = google_sheets
         
         # Interview state
         self.current_question_number = 0
@@ -49,6 +58,13 @@ class InterviewManager:
         self.interview_ended = False
         self.started_at = None
         self.ended_at = None
+        
+        # Save job description to storage
+        if self.data_storage:
+            try:
+                self.data_storage.save_job_description(job_description, self.session_id)
+            except Exception as e:
+                logger.error(f"Error saving job description: {e}")
     
     async def generate_first_question(self) -> str:
         """Generate the first interview question"""
@@ -123,6 +139,18 @@ class InterviewManager:
                 f"Answer {self.current_question_number} evaluated. "
                 f"Score: {score}/10"
             )
+            
+            # Save answer to storage
+            if self.data_storage:
+                try:
+                    self.data_storage.save_answer(
+                        self.session_id,
+                        current_question,
+                        answer,
+                        score
+                    )
+                except Exception as e:
+                    logger.error(f"Error saving answer: {e}")
             
             # Check if interview should continue
             if self.current_question_number >= self.total_questions:
@@ -208,6 +236,8 @@ class InterviewManager:
                 "session_id": self.session_id,
                 "candidate_name": self.candidate_name,
                 "candidate_experience": self.experience_years,
+                "job_description": self.job_description,
+                "difficulty": self.difficulty,
                 "started_at": self.started_at.isoformat() if self.started_at else None,
                 "ended_at": self.ended_at.isoformat() if self.ended_at else None,
                 "total_questions": len(self.questions_asked),
@@ -226,6 +256,7 @@ class InterviewManager:
                     }
                     for i in range(len(self.questions_asked))
                 ],
+                "timestamp": datetime.now().isoformat(),
                 **final_feedback
             }
             
@@ -234,6 +265,20 @@ class InterviewManager:
                 f"Final Score: {report['average_score']:.1f}/10, "
                 f"Recommendation: {report.get('hire_recommendation', 'N/A')}"
             )
+            
+            # Save complete interview session to storage
+            if self.data_storage:
+                try:
+                    self.data_storage.save_interview_session(report)
+                except Exception as e:
+                    logger.error(f"Error saving interview session: {e}")
+            
+            # Export to Google Sheets if available
+            if self.google_sheets and self.google_sheets.is_initialized():
+                try:
+                    self.google_sheets.export_interview(report)
+                except Exception as e:
+                    logger.error(f"Error exporting to Google Sheets: {e}")
             
             return report
         
