@@ -155,10 +155,12 @@ Return response in JSON format only:
                     result["question_difficulty"] = difficulty
                 # Ensure rubric is present
                 if "rubric" not in result:
+                    score = result.get("score", 6)
+                    # Distribute score with slight variation
                     result["rubric"] = {
-                        "communication": result.get("score", 6),
-                        "technical_accuracy": result.get("score", 6),
-                        "completeness": result.get("score", 6)
+                        "communication": max(0, min(10, score - 0.5)),
+                        "technical_accuracy": score,
+                        "completeness": max(0, min(10, score + 0.5))
                     }
                 return result
             else:

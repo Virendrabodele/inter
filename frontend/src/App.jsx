@@ -139,7 +139,7 @@ export default function App() {
       utterance.onend = () => {
         setIsPlaying(false);
         // Start listening after question is spoken (if auto-start is enabled)
-        if (autoStartRecording && speechRecognitionSupported) {
+        if (autoStartRecording) {
           setTimeout(() => startRecording(), 500);
         }
       };
