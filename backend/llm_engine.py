@@ -67,9 +67,9 @@ JOB DESCRIPTION:
 {job_description}
 
 CANDIDATE PROFILE:
-- Name: {candidate_profile.get('name', 'Candidate')}
-- Years of Experience: {candidate_profile.get('experience_years', 0)}
-- Previous Answers: {json.dumps(candidate_profile.get('answers', []), indent=2)}
+ Name: {candidate_profile.get('name', 'Candidate')}
+ Years of Experience: {candidate_profile.get('experience_years', 0)}
+ Previous Answers: {json.dumps(candidate_profile.get('answers', []), indent=2)}
 
 {previous_context}
 
@@ -113,18 +113,32 @@ CANDIDATE ANSWER:
 
 DIFFICULTY LEVEL: {difficulty}
 
-Evaluate this answer and provide:
-1. A score from 0-10
-2. Brief evaluation (2-3 sentences)
-3. 2-3 key strengths
-4. 2-3 areas for improvement
+Evaluate this answer using the following structured rubric:
+
+1. **Communication** (0-10): Clarity, structure, and articulation
+2. **Technical Accuracy** (0-10): Correctness and depth of technical knowledge
+3. **Completeness** (0-10): How thoroughly the question was addressed
+
+Provide:
+1. An overall score from 0-10 (average of rubric scores)
+2. Individual rubric scores for communication, technical_accuracy, and completeness
+3. Brief evaluation (2-3 sentences)
+4. 2-3 key strengths
+5. 2-3 areas for improvement
+6. The difficulty level of the question
 
 Return response in JSON format only:
 {{
   "score": 0,
+  "rubric": {{
+    "communication": 0,
+    "technical_accuracy": 0,
+    "completeness": 0
+  }},
   "evaluation": "",
   "strengths": [],
-  "improvements": []
+  "improvements": [],
+  "question_difficulty": "{difficulty}"
 }}
 """
 
@@ -135,13 +149,32 @@ Return response in JSON format only:
             start = response_text.find("{")
             end = response_text.rfind("}") + 1
             if start >= 0 and end > start:
-                return json.loads(response_text[start:end])
+                result = json.loads(response_text[start:end])
+                # Ensure question_difficulty is present
+                if "question_difficulty" not in result:
+                    result["question_difficulty"] = difficulty
+                # Ensure rubric is present
+                if "rubric" not in result:
+                    score = result.get("score", 6)
+                    # Distribute score with slight variation
+                    result["rubric"] = {
+                        "communication": max(0, min(10, score - 0.5)),
+                        "technical_accuracy": score,
+                        "completeness": max(0, min(10, score + 0.5))
+                    }
+                return result
             else:
                 return {
                     "score": 6,
+                    "rubric": {
+                        "communication": 6,
+                        "technical_accuracy": 6,
+                        "completeness": 6
+                    },
                     "evaluation": response_text,
                     "strengths": ["Attempted answer"],
-                    "improvements": ["Needs more clarity"]
+                    "improvements": ["Needs more clarity"],
+                    "question_difficulty": difficulty
                 }
 
         except Exception as e:
@@ -164,9 +197,9 @@ JOB DESCRIPTION:
 {job_description}
 
 CANDIDATE PROFILE:
-- Name: {candidate_profile.get('name')}
-- Experience: {candidate_profile.get('experience_years')} years
-- Answers Summary: {json.dumps(candidate_profile.get('answers_summary', []), indent=2)}
+ Name: {candidate_profile.get('name')}
+ Experience: {candidate_profile.get('experience_years')} years
+ Answers Summary: {json.dumps(candidate_profile.get('answers_summary', []), indent=2)}
 
 INTERVIEW SCORES:
 {all_scores}

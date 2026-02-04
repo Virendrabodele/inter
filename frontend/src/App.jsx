@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './App.css';
 
+// Get API base URL from environment variable or use default
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 export default function App() {
   // Interview state
   const [stage, setStage] = useState('setup'); // setup|interviewing|completed
@@ -24,6 +27,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [finalReport, setFinalReport] = useState(null);
   
+  // Settings
+  const [autoStartRecording, setAutoStartRecording] = useState(true);
+  const [speechRecognitionSupported, setSpeechRecognitionSupported] = useState(true);
+  const [storageInfo, setStorageInfo] = useState(null);
+  
   // Audio refs
   const mediaRecorderRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -32,6 +40,14 @@ export default function App() {
   
   // Web Speech API (fallback for transcription)
   const recognitionRef = useRef(null);
+  
+  // Check health on mount to get storage info
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/health`)
+      .then(res => res.json())
+      .then(data => setStorageInfo(data))
+      .catch(err => console.error('Failed to fetch health:', err));
+  }, []);
   
   // Initialize Web Speech API
   useEffect(() => {
@@ -68,6 +84,10 @@ export default function App() {
       recognitionRef.current.onend = () => {
         setIsRecording(false);
       };
+      setSpeechRecognitionSupported(true);
+    } else {
+      setSpeechRecognitionSupported(false);
+      console.warn('Speech recognition not supported in this browser');
     }
   }, []);
   
@@ -77,7 +97,7 @@ export default function App() {
     setIsLoading(true);
     
     try {
-      const response = await fetch('http://localhost:8000/api/start-interview', {
+      const response = await fetch(`${API_BASE_URL}/api/start-interview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -118,8 +138,10 @@ export default function App() {
       utterance.onstart = () => setIsPlaying(true);
       utterance.onend = () => {
         setIsPlaying(false);
-        // Start listening after question is spoken
-        setTimeout(() => startRecording(), 500);
+        // Start listening after question is spoken (if auto-start is enabled)
+        if (autoStartRecording) {
+          setTimeout(() => startRecording(), 500);
+        }
       };
       
       window.speechSynthesis.cancel(); // Cancel any previous speech
@@ -129,6 +151,11 @@ export default function App() {
   
   // Start recording user answer
   const startRecording = async () => {
+    if (!speechRecognitionSupported) {
+      // If speech recognition is not supported, just allow manual typing
+      return;
+    }
+    
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
@@ -174,7 +201,7 @@ export default function App() {
     setIsLoading(true);
     
     try {
-      const response = await fetch('http://localhost:8000/api/submit-answer', {
+      const response = await fetch(`${API_BASE_URL}/api/submit-answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,6 +231,30 @@ export default function App() {
       }
     } catch (error) {
       alert('Error: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Export to sheets
+  const handleExportToSheets = async () => {
+    if (!sessionId) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/export/${sessionId}`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to export');
+      }
+      
+      const data = await response.json();
+      alert(`✓ ${data.message}`);
+    } catch (error) {
+      alert('Export failed: ' + error.message);
     } finally {
       setIsLoading(false);
     }
@@ -243,6 +294,8 @@ export default function App() {
         setDifficulty={setDifficulty}
         onSubmit={handleStartInterview}
         isLoading={isLoading}
+        speechRecognitionSupported={speechRecognitionSupported}
+        storageInfo={storageInfo}
       />}
       
       {stage === 'interviewing' && <InterviewStage
@@ -254,15 +307,22 @@ export default function App() {
         isPlaying={isPlaying}
         isLoading={isLoading}
         currentAnswer={currentAnswer}
+        setCurrentAnswer={setCurrentAnswer}
         transcript={transcript}
         onToggleRecording={toggleRecording}
         onSubmitAnswer={handleSubmitAnswer}
         onSpeakAnswer={speakAnswer}
+        speechRecognitionSupported={speechRecognitionSupported}
+        autoStartRecording={autoStartRecording}
+        setAutoStartRecording={setAutoStartRecording}
       />}
       
       {stage === 'completed' && <CompletedStage
         report={finalReport}
         onRestart={handleRestart}
+        onExport={handleExportToSheets}
+        canExport={storageInfo?.storage_mode?.includes('sheets') || false}
+        isLoading={isLoading}
       />}
     </div>
   );
@@ -274,7 +334,9 @@ function SetupStage({
   candidateName, setCandidateName,
   experience, setExperience,
   difficulty, setDifficulty,
-  onSubmit, isLoading
+  onSubmit, isLoading,
+  speechRecognitionSupported,
+  storageInfo
 }) {
   return (
     <div className="stage setup-stage">
@@ -282,7 +344,28 @@ function SetupStage({
         <div className="setup-header">
           <h1 className="setup-title">🎙️ Voice Interview</h1>
           <p className="setup-subtitle">Powered by AI</p>
+          {storageInfo && (
+            <p className="storage-info" style={{fontSize: '0.85rem', marginTop: '0.5rem', color: '#888'}}>
+              Storage: {storageInfo.storage_mode || 'local'}
+              {storageInfo.sheet_name && ` (${storageInfo.sheet_name})`}
+            </p>
+          )}
         </div>
+        
+        {!speechRecognitionSupported && (
+          <div className="warning-banner" style={{
+            background: '#fff3cd',
+            border: '1px solid #ffc107',
+            padding: '1rem',
+            borderRadius: '8px',
+            marginBottom: '1rem'
+          }}>
+            <strong>⚠️ Speech Recognition Not Supported</strong>
+            <p style={{margin: '0.5rem 0 0 0', fontSize: '0.9rem'}}>
+              Your browser doesn't support speech recognition. You can still take the interview by typing your answers manually.
+            </p>
+          </div>
+        )}
         
         <form onSubmit={onSubmit} className="setup-form">
           <div className="form-group">
@@ -353,8 +436,10 @@ function SetupStage({
 function InterviewStage({
   currentQuestion, questionNumber, totalQuestions, progress,
   isRecording, isPlaying, isLoading,
-  currentAnswer, transcript,
-  onToggleRecording, onSubmitAnswer, onSpeakAnswer
+  currentAnswer, setCurrentAnswer, transcript,
+  onToggleRecording, onSubmitAnswer, onSpeakAnswer,
+  speechRecognitionSupported,
+  autoStartRecording, setAutoStartRecording
 }) {
   return (
     <div className="stage interview-stage">
@@ -371,6 +456,25 @@ function InterviewStage({
             Question {questionNumber} of {totalQuestions}
           </div>
         </div>
+        
+        {/* Settings */}
+        {speechRecognitionSupported && (
+          <div className="settings-section" style={{
+            textAlign: 'center',
+            marginBottom: '1rem',
+            fontSize: '0.9rem'
+          }}>
+            <label style={{cursor: 'pointer', userSelect: 'none'}}>
+              <input 
+                type="checkbox" 
+                checked={autoStartRecording}
+                onChange={(e) => setAutoStartRecording(e.target.checked)}
+                style={{marginRight: '0.5rem'}}
+              />
+              Auto-start recording after AI speaks
+            </label>
+          </div>
+        )}
         
         {/* Question display */}
         <div className="question-section">
@@ -403,24 +507,47 @@ function InterviewStage({
         <div className="answer-section">
           <div className="answer-box">
             <div className="answer-label">Your Answer</div>
-            <p className="answer-text">
-              {currentAnswer || (transcript ? `${currentAnswer}${transcript}` : 'Speak your answer...')}
-            </p>
-            <div className="interim-text">{transcript}</div>
+            {speechRecognitionSupported ? (
+              <>
+                <p className="answer-text">
+                  {currentAnswer || (transcript ? `${currentAnswer}${transcript}` : 'Speak your answer...')}
+                </p>
+                <div className="interim-text">{transcript}</div>
+              </>
+            ) : (
+              <textarea
+                className="answer-textarea"
+                value={currentAnswer}
+                onChange={(e) => setCurrentAnswer(e.target.value)}
+                placeholder="Type your answer here..."
+                rows="6"
+                style={{
+                  width: '100%',
+                  padding: '1rem',
+                  borderRadius: '8px',
+                  border: '2px solid #e0e0e0',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit',
+                  resize: 'vertical'
+                }}
+              />
+            )}
           </div>
         </div>
         
         {/* Controls */}
         <div className="controls-section">
-          <button
-            className={`btn btn-mic ${isRecording ? 'recording' : ''}`}
-            onClick={onToggleRecording}
-            disabled={isPlaying || isLoading}
-          >
-            {isRecording ? '⊙ Stop Recording' : '🎤 Start Recording'}
-          </button>
+          {speechRecognitionSupported && (
+            <button
+              className={`btn btn-mic ${isRecording ? 'recording' : ''}`}
+              onClick={onToggleRecording}
+              disabled={isPlaying || isLoading}
+            >
+              {isRecording ? '⊙ Stop Recording' : '🎤 Start Recording'}
+            </button>
+          )}
           
-          {currentAnswer && (
+          {currentAnswer && speechRecognitionSupported && (
             <button
               className="btn btn-secondary"
               onClick={onSpeakAnswer}
@@ -443,7 +570,7 @@ function InterviewStage({
 }
 
 // Completed Stage Component
-function CompletedStage({ report, onRestart }) {
+function CompletedStage({ report, onRestart, onExport, canExport, isLoading }) {
   if (!report) return null;
   
   const scoreColor = report.overall_score >= 7 ? '#4ade80' : report.overall_score >= 5 ? '#fbbf24' : '#f87171';
@@ -532,13 +659,27 @@ function CompletedStage({ report, onRestart }) {
           </div>
         </div>
         
-        {/* Restart button */}
-        <button
-          className="btn btn-primary btn-large"
-          onClick={onRestart}
-        >
-          Take Another Interview
-        </button>
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {canExport && (
+            <button
+              className="btn btn-secondary btn-large"
+              onClick={onExport}
+              disabled={isLoading}
+              style={{ minWidth: '200px' }}
+            >
+              {isLoading ? 'Exporting...' : '📊 Save to Google Sheets'}
+            </button>
+          )}
+          
+          <button
+            className="btn btn-primary btn-large"
+            onClick={onRestart}
+            style={{ minWidth: '200px' }}
+          >
+            Take Another Interview
+          </button>
+        </div>
       </div>
     </div>
   );

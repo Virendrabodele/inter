@@ -1,8 +1,8 @@
 # 🎙️ AI Voice Interviewer
 
-A cutting-edge, **voice-based AI interview platform** that simulates real human interviews using local LLMs and browser speech APIs. 
+A cutting-edge, **voice-based AI interview platform** that simulates real human interviews using Google Gemini AI and browser speech APIs. 
 
-**Zero cost. No API keys. Fully private.**
+**Powered by Google Gemini. Browser-based speech recognition. Fully customizable.**
 
 ---
 
@@ -31,9 +31,9 @@ A cutting-edge, **voice-based AI interview platform** that simulates real human 
 ✅ **Voice-Only Interview**: No typing—pure voice interaction  
 ✅ **Real-time Transcription**: Browser Web Speech API (free)  
 ✅ **Intelligent Questions**: AI generates questions dynamically based on candidate answers  
-✅ **Scoring & Feedback**: Automatic evaluation with detailed feedback  
+✅ **Scoring & Feedback**: Automatic evaluation with detailed rubric (communication, technical accuracy, completeness)  
 ✅ **Job-Specific**: Tailors questions to actual job description  
-✅ **Local LLM**: Uses Ollama (Mistral/Llama2)—no cloud costs  
+✅ **Google Gemini AI**: Powered by Google's advanced Gemini models  
 ✅ **Beautiful UI**: Modern, responsive design with animations  
 ✅ **Comprehensive Reports**: Final score, strengths, weaknesses, recommendations  
 ✅ **Data Persistence**: Automatically saves all interviews and responses  
@@ -46,7 +46,7 @@ A cutting-edge, **voice-based AI interview platform** that simulates real human 
 | Component | Technology | Why |
 |-----------|-----------|-----|
 | Backend | FastAPI (Python) | Fast, async, easy to extend |
-| LLM | Ollama + Mistral/Llama2 | Local, free, no API costs |
+| LLM | Google Gemini | Advanced AI, reliable, scalable |
 | Frontend | React 18 | Modern, responsive, interactive |
 | Speech Recognition | Web Speech API | Browser-native, no APIs needed |
 | Speech Synthesis | Web Speech API | Browser-native text-to-speech |
@@ -60,42 +60,38 @@ Before starting, install:
 
 1. **Python 3.9+**: [python.org](https://python.org)
 2. **Node.js 16+**: [nodejs.org](https://nodejs.org)
-3. **Ollama**: [ollama.ai](https://ollama.ai)
+3. **Google Gemini API Key**: Get free API key from [ai.google.dev](https://ai.google.dev)
 
 Check installations:
 ```bash
 python --version    # Python 3.9+
 node --version      # Node 16+
-ollama --version    # Should be installed
 ```
 
 ---
 
 ## ⚡ Quick Start (5 minutes)
 
-### Step 1: Pull LLM Model
-```bash
-# Choose one (or install both)
-ollama pull mistral    # Recommended: Fast & accurate
-ollama pull llama2     # Alternative: Slower, more accurate
-```
+### Step 1: Get Gemini API Key
+1. Visit [Google AI Studio](https://ai.google.dev)
+2. Click "Get API Key"
+3. Create a new API key
+4. Copy the key for later use
 
-### Step 2: Start Ollama Server
-```bash
-ollama serve
-# Runs on http://localhost:11434
-```
-
-### Step 3: Setup Backend
+### Step 2: Setup Backend
 ```bash
 cd backend
 python3 -m venv venv
 source venv/bin/activate    # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+# Set environment variable for Gemini API key
+export GEMINI_API_KEY="your-api-key-here"  # On Windows: set GEMINI_API_KEY=your-api-key-here
+
 python app.py               # Runs on http://localhost:8000
 ```
 
-### Step 4: Setup Frontend
+### Step 3: Setup Frontend
 ```bash
 # In new terminal
 cd frontend
@@ -103,7 +99,7 @@ npm install
 npm run dev                  # Runs on http://localhost:5173
 ```
 
-### Step 5: Open Application
+### Step 4: Open Application
 Open browser to: **http://localhost:5173**
 
 ---
@@ -184,21 +180,38 @@ ai_voice_interviewer/
 
 ## 🔧 Configuration
 
+## 🔧 Configuration
+
+### Environment Variables
+
+**Backend** (`backend/.env` or export):
+```bash
+GEMINI_API_KEY=your-api-key-here          # Required: Google Gemini API key
+STORAGE_MODE=local                         # Optional: local|sheets|both (default: local)
+GOOGLE_SHEETS_NAME=Interview Data          # Optional: Google Sheets name
+GOOGLE_SHEETS_CREDENTIALS=path/to/creds.json  # Optional: For Google Sheets integration
+```
+
+**Frontend** (`frontend/.env`):
+```bash
+VITE_API_BASE_URL=http://localhost:8000   # Optional: Backend API URL (default: http://localhost:8000)
+```
+
 ### Change LLM Model
-**File**: `backend/app.py` (line ~40)
+**File**: `backend/app.py`
 ```python
-llm_engine = LLMEngine(model="mistral")  # or "llama2"
+llm_engine = LLMEngine(model="gemini-1.5-flash")  # or "gemini-1.5-pro" for better quality
 ```
 
 ### Change Number of Questions
-**File**: `backend/interview_manager.py` (line ~35)
+**File**: `backend/interview_manager.py`
 ```python
 self.total_questions = 5  # Change to desired number
 ```
 
 ### Customize Interview Prompts
 **File**: `backend/llm_engine.py`  
-Edit the `prompt` variables in `generate_question()` method
+Edit the `prompt` variables in `generate_question()` and `evaluate_answer()` methods
 
 ---
 
@@ -241,20 +254,23 @@ GET /api/health
 
 ## 🐛 Troubleshooting
 
-### Ollama Connection Failed
+### Gemini API Key Issues
 ```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
+# Check if API key is set
+echo $GEMINI_API_KEY  # Should show your key
 
-# If not, start it
-ollama serve
+# Set it if missing
+export GEMINI_API_KEY="your-api-key-here"
+
+# Verify key works
+curl -H "x-goog-api-key: $GEMINI_API_KEY" \
+  "https://generativelanguage.googleapis.com/v1/models"
 ```
 
-### Model Not Found
-```bash
-ollama pull mistral
-ollama pull llama2
-```
+### Backend Won't Start
+- Ensure `GEMINI_API_KEY` environment variable is set
+- Check Python dependencies: `pip install -r requirements.txt`
+- Verify Python version: `python --version` (should be 3.9+)
 
 ### Microphone Not Working
 - Check browser permissions (allow microphone)
@@ -350,12 +366,12 @@ GET /api/data/interview/{session_id}
 
 ## 🔒 Privacy & Security
 
-✅ **All local**: LLM runs on your machine  
+✅ **Google Gemini API**: Secure cloud-based LLM processing  
 ✅ **Persistent storage**: Interview data saved locally for analysis  
-✅ **No cloud calls**: Speech recognition happens in browser  
+✅ **Browser-based speech**: Speech recognition happens in browser  
 ✅ **Optional export**: Google Sheets integration is optional  
 ✅ **No tracking**: No analytics or telemetry  
-⚠️ **Secure your data**: Keep credentials and interview data secure  
+⚠️ **Secure your API key**: Keep your Gemini API key and credentials secure  
 
 ---
 
@@ -363,8 +379,8 @@ GET /api/data/interview/{session_id}
 
 | Metric | Value |
 |--------|-------|
-| First question generation | ~3-5 seconds |
-| Answer evaluation | ~2-3 seconds |
+| First question generation | ~2-4 seconds |
+| Answer evaluation | ~1-3 seconds |
 | Speech recognition latency | ~1 second |
 | Text-to-speech latency | ~500ms |
 | Total Q→A→Q cycle | ~6-10 seconds |
