@@ -7,11 +7,12 @@
  
  from fastapi import FastAPI, WebSocket, HTTPException
  from fastapi.middleware.cors import CORSMiddleware
++from pydantic import BaseModel, Field
  import json
  import asyncio
  from typing import Optional
  import logging
-+import os
+ import os
  
  from interview_manager import InterviewManager
  from llm_engine import LLMEngine
@@ -24,6 +25,22 @@
  
  app = FastAPI(title="AI Voice Interviewer", version="1.0.0")
  
++
++class StartInterviewPayload(BaseModel):
++    job_description: str = Field(..., min_length=1)
++    candidate_name: str = "Candidate"
++    experience_years: int = Field(0, ge=0)
++    difficulty: str = "intermediate"
++
++
++class SubmitAnswerPayload(BaseModel):
++    session_id: str = Field(..., min_length=1)
++    answer: str = Field(..., min_length=1)
++
++
++class EndInterviewPayload(BaseModel):
++    session_id: str = Field(..., min_length=1)
++
  # CORS middleware
  app.add_middleware(
      CORSMiddleware,
@@ -35,19 +52,19 @@
  
  # Initialize components
  llm_engine = LLMEngine(model="gemini-1.5-flash")  # Using Google Gemini
- interview_manager = None
+-interview_manager = None
++interview_sessions = {}
  audio_processor = AudioProcessor()
  
  # Initialize data storage
--data_storage = DataStorage(storage_dir="interview_data")
-+storage_mode = os.getenv("STORAGE_MODE", "local").lower()
-+data_storage = None
-+if storage_mode in {"local", "both"}:
-+    data_storage = DataStorage(storage_dir="interview_data")
+ storage_mode = os.getenv("STORAGE_MODE", "local").lower()
+ data_storage = None
+ if storage_mode in {"local", "both"}:
+     data_storage = DataStorage(storage_dir="interview_data")
  
  # Initialize Google Sheets (optional - requires credentials)
  google_sheets = None
-+google_sheet_name = os.getenv("GOOGLE_SHEETS_NAME", "Interview Data")
+ google_sheet_name = os.getenv("GOOGLE_SHEETS_NAME", "Interview Data")
  try:
      google_sheets = GoogleSheetsStorage()
      if google_sheets.is_initialized():
@@ -72,24 +89,33 @@
  
  
  @app.post("/api/start-interview")
- async def start_interview(payload: dict):
-@@ -75,51 +80,52 @@ async def start_interview(payload: dict):
+-async def start_interview(payload: dict):
++async def start_interview(payload: StartInterviewPayload):
+     """
+     Start a new interview session
+     
+     Expected payload:
+     {
          "job_description": "string",
          "candidate_name": "string",
          "experience_years": int,
          "difficulty": "beginner|intermediate|advanced"
      }
      """
-     global interview_manager
-     
+-    global interview_manager
+-    
      try:
-         job_description = payload.get("job_description")
-         candidate_name = payload.get("candidate_name", "Candidate")
-         experience_years = payload.get("experience_years", 0)
-         difficulty = payload.get("difficulty", "intermediate")
-         
-         if not job_description:
-             raise HTTPException(status_code=400, detail="Job description required")
+-        job_description = payload.get("job_description")
+-        candidate_name = payload.get("candidate_name", "Candidate")
+-        experience_years = payload.get("experience_years", 0)
+-        difficulty = payload.get("difficulty", "intermediate")
+-        
+-        if not job_description:
+-            raise HTTPException(status_code=400, detail="Job description required")
++        job_description = payload.job_description
++        candidate_name = payload.candidate_name
++        experience_years = payload.experience_years
++        difficulty = payload.difficulty
          
          # Create new interview manager
          interview_manager = InterviewManager(
@@ -99,10 +125,10 @@
              experience_years=experience_years,
              difficulty=difficulty,
              data_storage=data_storage,
--            google_sheets=google_sheets
-+            google_sheets=google_sheets,
-+            google_sheet_name=google_sheet_name
+             google_sheets=google_sheets,
+             google_sheet_name=google_sheet_name
          )
++        interview_sessions[interview_manager.session_id] = interview_manager
          
          # Generate first question
          first_question = await interview_manager.generate_first_question()
@@ -121,13 +147,107 @@
  
  
  @app.post("/api/submit-answer")
- async def submit_answer(payload: dict):
+-async def submit_answer(payload: dict):
++async def submit_answer(payload: SubmitAnswerPayload):
      """
      Submit candidate answer and get next question
      
      Expected payload:
      {
-@@ -214,64 +220,79 @@ async def websocket_interview(websocket: WebSocket, session_id: str):
+         "session_id": "string",
+         "answer": "string (transcribed from audio)"
+     }
+     """
+-    global interview_manager
+-    
+     try:
++        interview_manager = interview_sessions.get(payload.session_id)
+         if not interview_manager:
+             raise HTTPException(status_code=400, detail="No active interview session")
+         
+-        answer = payload.get("answer")
+-        
+-        if not answer:
+-            raise HTTPException(status_code=400, detail="Answer required")
++        answer = payload.answer
+         
+         # Process answer and generate next question
+         result = await interview_manager.process_answer(answer)
+         
+         return result
+     
+     except Exception as e:
+         logger.error(f"Error submitting answer: {e}")
+         raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+ @app.post("/api/end-interview")
+-async def end_interview(payload: dict):
++async def end_interview(payload: EndInterviewPayload):
+     """
+     End interview and get final score/feedback
+     
+     Expected payload:
+     {
+         "session_id": "string"
+     }
+     """
+-    global interview_manager
+-    
+     try:
++        interview_manager = interview_sessions.get(payload.session_id)
+         if not interview_manager:
+             raise HTTPException(status_code=400, detail="No active interview session")
+         
+         # Generate final report
+         report = await interview_manager.generate_final_report()
+         
+-        interview_manager = None  # Clear session
++        interview_sessions.pop(payload.session_id, None)
+         
+         return {
+             "status": "completed",
+             "report": report
+         }
+     
+     except Exception as e:
+         logger.error(f"Error ending interview: {e}")
+         raise HTTPException(status_code=500, detail=str(e))
+ 
+ 
+ @app.websocket("/ws/interview/{session_id}")
+ async def websocket_interview(websocket: WebSocket, session_id: str):
+     """
+     WebSocket endpoint for real-time interview interaction
+     Allows bidirectional communication for audio streaming
+     """
+     await websocket.accept()
+     
+     try:
+         while True:
+             data = await websocket.receive_text()
+             message = json.loads(data)
+             
+             # Handle different message types
+             if message.get("type") == "audio":
+                 # Process audio stream
+                 audio_data = message.get("audio")
+                 # Convert audio to text using speech-to-text
+                 # For now, just echo back
+                 pass
+             
+             elif message.get("type") == "answer":
+                 # Handle text answer
+                 answer = message.get("answer")
++                interview_manager = interview_sessions.get(session_id)
+                 if interview_manager:
+                     result = await interview_manager.process_answer(answer)
+                     await websocket.send_text(json.dumps(result))
+     
+     except Exception as e:
+         logger.error(f"WebSocket error: {e}")
+         await websocket.close(code=1000)
+ 
  
  @app.get("/api/health")
  async def health_check():
@@ -145,68 +265,6 @@
          models = await llm_engine.get_available_models()
          return {"models": models}
      except Exception as e:
-         logger.error(f"Error fetching models: {e}")
-         raise HTTPException(status_code=500, detail=str(e))
- 
- 
- @app.get("/api/data/interviews")
- async def get_all_interviews():
-     """Get all stored interview sessions"""
-     try:
-+        if not data_storage:
-+            raise HTTPException(
-+                status_code=400,
-+                detail="Local storage disabled. Set STORAGE_MODE=local or STORAGE_MODE=both to enable."
-+            )
-         interviews = data_storage.get_all_interviews()
-         return {
-             "total": len(interviews),
-             "interviews": interviews
-         }
-     except Exception as e:
-         logger.error(f"Error fetching interviews: {e}")
-         raise HTTPException(status_code=500, detail=str(e))
- 
- 
- @app.get("/api/data/statistics")
- async def get_statistics():
-     """Get statistics about stored interviews"""
-     try:
-+        if not data_storage:
-+            raise HTTPException(
-+                status_code=400,
-+                detail="Local storage disabled. Set STORAGE_MODE=local or STORAGE_MODE=both to enable."
-+            )
-         stats = data_storage.get_statistics()
-         return stats
-     except Exception as e:
-         logger.error(f"Error fetching statistics: {e}")
-         raise HTTPException(status_code=500, detail=str(e))
- 
- 
- @app.get("/api/data/interview/{session_id}")
- async def get_interview(session_id: str):
-     """Get a specific interview by session ID"""
-     try:
-+        if not data_storage:
-+            raise HTTPException(
-+                status_code=400,
-+                detail="Local storage disabled. Set STORAGE_MODE=local or STORAGE_MODE=both to enable."
-+            )
-         interview = data_storage.get_interview_by_id(session_id)
-         if not interview:
-             raise HTTPException(status_code=404, detail="Interview not found")
-         return interview
-     except HTTPException:
-         raise
-     except Exception as e:
-         logger.error(f"Error fetching interview: {e}")
-         raise HTTPException(status_code=500, detail=str(e))
- 
- 
- if __name__ == "__main__":
-     import uvicorn
-     uvicorn.run(app, host="0.0.0.0", port=8000)
  
 EOF
 )
